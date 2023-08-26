@@ -9,6 +9,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Result;
+
 use bytes::Bytes;
 use rand::{thread_rng, Rng};
 use reqwest::IntoUrl;
@@ -131,7 +133,7 @@ impl Cacher {
         }
     }
 
-    pub fn save(&self) -> Result<(), Error> {
+    pub fn save(&self) -> Result<()> {
         let text = serde_json::to_string_pretty(&self.file_map)?;
         fs::write(&self.config.cache_json, text)?;
         Ok(())
@@ -148,7 +150,7 @@ impl Cacher {
         HashMap::new()
     }
 
-    fn init_path(&self) -> Result<(), Error> {
+    fn init_path(&self) -> Result<()> {
         fs::create_dir_all(&self.config.cache_dir)?;
         Ok(())
     }
@@ -160,7 +162,7 @@ impl Cacher {
             .as_secs();
         let mut to_remove: Vec<String> = Vec::new();
         for key in self.file_map.keys() {
-            let cached_file = self.file_map.get(key).unwrap();
+            let cached_file = self.file_map.get(key).expect("shouldn't happen");
             let expire_time = Cacher::get_expire_time(cached_file, self.config.file_lifetime);
             if expire_time < now {
                 to_remove.push(key.clone());
@@ -168,7 +170,7 @@ impl Cacher {
         }
         let mut count = 0;
         for key in to_remove {
-            let cached_file = self.file_map.remove(&key).unwrap();
+            let cached_file = self.file_map.remove(&key).expect("shouldn't happen");
             if let Err(err) = fs::remove_file(&cached_file.path) {
                 writeln!(io::stderr(), "{},{}", err, cached_file.path)
                     .expect("printing to stderr failed");
@@ -192,7 +194,7 @@ impl Cacher {
         url: T,
         filename: &str,
         refresh: bool,
-    ) -> Result<String, Error> {
+    ) -> Result<String> {
         self.clean_expired();
         if !refresh {
             if let Some(cached_file) = self.file_map.get(url.as_str()) {
@@ -241,14 +243,14 @@ impl Cacher {
         };
         self.file_map.insert(url.as_str().to_owned(), cached_file);
 
-        return Ok(self.file_map.get(url.as_str()).unwrap().path.to_owned());
+        return Ok(self.file_map.get(url.as_str()).expect("should be there because it was just inserted").path.to_owned());
     }
 
     async fn get_from_url<T: IntoUrl>(url: T) -> reqwest::Result<Bytes> {
         reqwest::get(url).await?.bytes().await
     }
 
-    pub fn clear(&mut self) -> Result<i16, Error> {
+    pub fn clear(&mut self) -> Result<i16> {
         let mut count=0;
         for path in self.file_map.values().map(|v| &v.path) {
             if let Err(err) = fs::remove_file(path) {
@@ -320,7 +322,7 @@ pub fn get_absolute_path_with_variables(path: &str) -> String {
         .canonicalize()
         .unwrap_or(PathBuf::from(path.clone()));
     for component in absolute_path.components() {
-        let component = component.as_os_str().to_str().unwrap();
+        let component = component.as_os_str().to_str().expect("not valid UTF-8");
         if let Some(var) = component.strip_prefix('$') {
             let var = env::var(var).unwrap_or("".to_string());
             for component in PathBuf::from(var).components() {
