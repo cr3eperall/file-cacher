@@ -6,10 +6,7 @@ use std::io::Error;
 include!("src/cli.rs");
 
 fn main() -> Result<(), Error> {
-    let outdir = match env::var_os("OUT_DIR") {
-        None => return Ok(()),
-        Some(outdir) => outdir,
-    };
+    let outdir = "./target";
     let bin_name = "file-cacher";
 
     let mut cmd: Command = Cli::command_for_update();
