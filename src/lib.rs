@@ -98,15 +98,15 @@ impl Cacher {
                 let map: Result<HashMap<String, CachedFile>, serde_json::Error> =
                     serde_json::from_str(&text);
                 match map {
-                    Ok(file_map) => return file_map,
+                    Ok(file_map) => file_map,
                     Err(err) => {
-                        writeln!(io::stderr(),"{}",err).unwrap();
+                        eprintln!("{}",err);
                         HashMap::new()
                     }
                 }
             }
             Err(err) => {
-                writeln!(io::stderr(),"{}",err).unwrap();
+                eprintln!("{}",err);
                 HashMap::new()
             },
         }
@@ -273,7 +273,7 @@ fn format_unix_epoch_duration(time: &u64) -> String {
     
     let time: i64 = *time as i64
         - get_now_unix_epoch() as i64;
-        let time_str = fmt.convert(Duration::from_secs(time.abs() as u64));
+        let time_str = fmt.convert(Duration::from_secs(time.unsigned_abs()));
     if time < 0 {
         format!("{} ago", time_str)
     } else {
@@ -285,5 +285,5 @@ fn get_now_unix_epoch() -> u64 {
     SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_secs() as u64
+            .as_secs()
 }

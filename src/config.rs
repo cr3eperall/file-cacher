@@ -73,8 +73,8 @@ impl Config{
 
         for entry in &mut entries {
             entry.key = entry.key.to_lowercase();
-            if let Some(value) = entry.value.strip_prefix("\"") {
-                let value_stripped = value.strip_suffix("\"").expect("config file malformed: missing \" at the end of the line").to_owned();
+            if let Some(value) = entry.value.strip_prefix('\"') {
+                let value_stripped = value.strip_suffix('\"').expect("config file malformed: missing \" at the end of the line").to_owned();
                 entry.value = get_absolute_path_with_variables(&value_stripped);
             }
         }
@@ -100,7 +100,7 @@ fn parse_range(s: &str) -> Result<Range<i32>> {
         bail!("error parsing range: multiple occourrences or missing '..'")
     }
     let vec: Vec<_> = s.split("..").collect();
-    let (from, to) = (vec.get(0).context("failed to finding from string")?, vec.get(1).context("error finding to string")?);
+    let (from, to) = (vec.first().context("failed to finding from string")?, vec.get(1).context("error finding to string")?);
     let (from, to) = (from.parse::<i32>().context("failed to parse from")?, to.parse::<i32>().context("error parsing to")?);
     Ok(Range { start: from, end: to})
 }

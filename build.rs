@@ -1,6 +1,5 @@
 use clap::{Command, CommandFactory};
 use clap_complete::{generate_to, shells};
-use std::env;
 use std::io::Error;
 
 include!("src/cli.rs");
@@ -14,7 +13,7 @@ fn main() -> Result<(), Error> {
         shells::Bash,
         &mut cmd, // We need to specify what generator to use
         bin_name, // We need to specify the bin name manually
-        &outdir,  // We need to specify where to write to
+        outdir,  // We need to specify where to write to
     )?;
 
     println!("cargo:warning=completion file is generated: {path:?}");
@@ -22,7 +21,7 @@ fn main() -> Result<(), Error> {
         shells::Zsh,
         &mut cmd, // We need to specify what generator to use
         bin_name, // We need to specify the bin name manually
-        &outdir,  // We need to specify where to write to
+        outdir,  // We need to specify where to write to
     )?;
 
     println!("cargo:warning=completion file is generated: {path:?}");
