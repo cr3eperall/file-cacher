@@ -1,51 +1,24 @@
 use std::{
     collections::HashMap,
-    env,
     fmt::Display,
     fs,
     io::{self, Write},
-    ops::Range,
-    path::{Component, Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH, Duration},
 };
 
 use anyhow::Result;
 
 use bytes::Bytes;
+use config::Config;
 use rand::{thread_rng, Rng};
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
+use human_bytes::human_bytes;
 
 pub mod cli;
+pub mod config;
 
-#[derive(Debug)]
-pub enum Error {
-    IOError(std::io::Error),
-    SerdeError(serde_json::Error),
-    ReqwestError(reqwest::Error),
-    Other(String),
-}
-
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Self::IOError(value)
-    }
-}
-impl From<serde_json::Error> for Error {
-    fn from(value: serde_json::Error) -> Self {
-        Self::SerdeError(value)
-    }
-}
-impl From<reqwest::Error> for Error {
-    fn from(value: reqwest::Error) -> Self {
-        Self::ReqwestError(value)
-    }
-}
-impl From<String> for Error {
-    fn from(value: String) -> Self {
-        Self::Other(value)
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct CachedFile {
@@ -53,29 +26,9 @@ pub struct CachedFile {
     pub path: String,
     pub cached_time: u64, //UNIX_APOCH time
     pub random: i32,      //random offset in cache lifetime
+    pub expire_time: Option<u64> //UNIX_APOCH time
 }
 
-pub struct Config {
-    pub cache_json: PathBuf,
-    pub cache_dir: PathBuf,
-    pub default_offset_range: Range<i32>,
-    pub file_lifetime: u64,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            cache_json: PathBuf::from(get_absolute_path_with_variables(
-                "$HOME/.config/file-cacher/cache.json",
-            )),
-            cache_dir: PathBuf::from(get_absolute_path_with_variables(
-                "$HOME/.config/file-cacher/cache/",
-            )),
-            default_offset_range: -36000..36001,
-            file_lifetime: 1728000,
-        }
-    }
-}
 
 pub struct Cacher {
     config: Config,
@@ -140,14 +93,24 @@ impl Cacher {
     }
 
     fn load<P: AsRef<Path>>(path: P) -> HashMap<String, CachedFile> {
-        if let Ok(text) = fs::read_to_string(path) {
-            let map: Result<HashMap<String, CachedFile>, serde_json::Error> =
-                serde_json::from_str(&text);
-            if let Ok(file_map) = map {
-                return file_map;
+        match fs::read_to_string(path) {
+            Ok(text) => {
+                let map: Result<HashMap<String, CachedFile>, serde_json::Error> =
+                    serde_json::from_str(&text);
+                match map {
+                    Ok(file_map) => return file_map,
+                    Err(err) => {
+                        writeln!(io::stderr(),"{}",err).unwrap();
+                        HashMap::new()
+                    }
+                }
             }
+            Err(err) => {
+                writeln!(io::stderr(),"{}",err).unwrap();
+                HashMap::new()
+            },
         }
-        HashMap::new()
+        
     }
 
     fn init_path(&self) -> Result<()> {
@@ -156,10 +119,7 @@ impl Cacher {
     }
 
     pub fn clean_expired(&mut self) -> u16 {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
+        let now = get_now_unix_epoch();
         let mut to_remove: Vec<String> = Vec::new();
         for key in self.file_map.keys() {
             let cached_file = self.file_map.get(key).expect("shouldn't happen");
@@ -177,6 +137,7 @@ impl Cacher {
             }
             count+=1;
         }
+        self.save().expect("failed to save cache-db");
         count
     }
 
@@ -194,6 +155,7 @@ impl Cacher {
         url: T,
         filename: &str,
         refresh: bool,
+        expire_time: Option<u64>,
     ) -> Result<String> {
         self.clean_expired();
         if !refresh {
@@ -232,14 +194,16 @@ impl Cacher {
         fs::write(&path, bytes)?;
         let path = path.to_str().expect("path wasn't valid UTF-8").to_owned();
         let mut rng = thread_rng();
+        let mut expiration=Option::<u64>::None;
+        if let Some(expire_time) = expire_time{
+            expiration=Some(get_now_unix_epoch() + expire_time);
+        }
         let cached_file = CachedFile {
             path,
             url: url.as_str().to_owned(),
-            cached_time: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards")
-                .as_secs(),
+            cached_time: get_now_unix_epoch(),
             random: rng.gen_range(self.config.default_offset_range.clone()),
+            expire_time: expiration
         };
         self.file_map.insert(url.as_str().to_owned(), cached_file);
 
@@ -281,14 +245,14 @@ impl Display for Stats {
             self.number_of_cached_files
         ));
         buf.push_str(&format!(
-            "largest file: {}\n\tsize:{} bytes\n",
-            self.max_file_size.0, self.max_file_size.1
+            "largest file: {}\n\tsize: {}\n",
+            self.max_file_size.0, human_bytes(self.max_file_size.1 as f64)
         ));
         buf.push_str(&format!(
-            "smallest file: {}\n\tsize:{} bytes\n",
-            self.min_file_size.0, self.min_file_size.1
+            "smallest file: {}\n\tsize: {}\n",
+            self.min_file_size.0, human_bytes(self.min_file_size.1 as f64)
         ));
-        buf.push_str(&format!("total cache size: {} bytes\n", self.total_size));
+        buf.push_str(&format!("total cache size: {}\n", human_bytes(self.total_size as f64)));
         buf.push_str(&format!(
             "next file to expire: {}\n\t{}\n",
             self.first_to_expire.0,
@@ -304,39 +268,22 @@ impl Display for Stats {
 }
 
 fn format_unix_epoch_duration(time: &u64) -> String {
+    let mut fmt=timeago::Formatter::new();
+    fmt.ago("").min_unit(timeago::TimeUnit::Seconds).max_unit(timeago::TimeUnit::Days).num_items(2);
+    
     let time: i64 = *time as i64
-        - SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs() as i64;
+        - get_now_unix_epoch() as i64;
+        let time_str = fmt.convert(Duration::from_secs(time.abs() as u64));
     if time < 0 {
-        format!("{}s ago", time)
+        format!("{} ago", time_str)
     } else {
-        format!("in {}s", time)
+        format!("in {}", time_str)
     }
 }
 
-pub fn get_absolute_path_with_variables(path: &str) -> String {
-    let mut final_path: PathBuf = PathBuf::new();
-    let absolute_path = PathBuf::from(path.clone())
-        .canonicalize()
-        .unwrap_or(PathBuf::from(path.clone()));
-    for component in absolute_path.components() {
-        let component = component.as_os_str().to_str().expect("not valid UTF-8");
-        if let Some(var) = component.strip_prefix('$') {
-            let var = env::var(var).unwrap_or("".to_string());
-            for component in PathBuf::from(var).components() {
-                if let Component::RootDir = component {
-                    if final_path.components().count() != 0 {
-                        continue;
-                    }
-                }
-                final_path.push(component);
-            }
-        } else {
-            final_path.push(component);
-        }
-    }
-
-    final_path.to_str().unwrap_or(path).to_string()
+fn get_now_unix_epoch() -> u64 {
+    SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs() as u64
 }
