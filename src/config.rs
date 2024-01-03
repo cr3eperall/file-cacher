@@ -110,9 +110,9 @@ fn parse_range(s: &str) -> Result<Range<i32>> {
 
 pub fn get_absolute_path_with_variables(path: &str) -> String {
     let mut final_path: PathBuf = PathBuf::new();
-    let absolute_path = PathBuf::from(path.clone())
+    let absolute_path = PathBuf::from(path)
         .canonicalize()
-        .unwrap_or(PathBuf::from(path.clone()));
+        .unwrap_or(PathBuf::from(path));
     for component in absolute_path.components() {
         let component = component.as_os_str().to_str().expect("not valid UTF-8");
         if let Some(var) = component.strip_prefix('$') {

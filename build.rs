@@ -5,7 +5,7 @@ use std::io::Error;
 include!("src/cli.rs");
 
 fn main() -> Result<(), Error> {
-    let outdir = "./target";
+    let outdir = "./target"; //idk if it works
     let bin_name = "file-cacher";
 
     let mut cmd: Command = Cli::command_for_update();
