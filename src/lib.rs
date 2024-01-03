@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     fs,
-    io::{self, Write},
+    io::{self, Write, prelude::*},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH, Duration},
 };
@@ -45,14 +45,14 @@ impl Cacher {
         }
     }
 
-    pub fn stats(&self) -> Stats {
+    pub fn stats(&mut self) -> Stats {
         let mut number_of_cached_files: i32 = 0;
         let mut max_file_size: (String, u64) = ("".to_string(), 0);
         let mut min_file_size: (String, u64) = ("".to_string(), u64::MAX);
         let mut total_size: u64 = 0;
         let mut last_to_expire: (String, u64) = ("".to_string(), 0);
         let mut first_to_expire: (String, u64) = ("".to_string(), u64::MAX);
-
+        self.clean_expired();
         for cached_file in self.file_map.values() {
             if let Ok(metadata) = fs::metadata(&cached_file.path) {
                 if metadata.is_file() {
@@ -93,21 +93,34 @@ impl Cacher {
     }
 
     fn load<P: AsRef<Path>>(path: P) -> HashMap<String, CachedFile> {
-        match fs::read_to_string(path) {
-            Ok(text) => {
+        let mut tmp=fs::OpenOptions::new().read(true).write(true).create(true).open(&path).unwrap();
+        if tmp.metadata().unwrap().len() == 0 {
+            drop(tmp);
+            tmp=fs::OpenOptions::new().read(true).create(false).open(&path).unwrap();
+        }
+        tmp.sync_all().expect("Error syncing cache file");
+        let mut content=String::new();
+        match tmp.read_to_string(&mut content) {
+            Ok(size) => {
+                if size==0 {
+                    writeln!(io::stderr(), "error reading file: 0 size")
+                            .expect("printing to stderr failed");
+                }
                 let map: Result<HashMap<String, CachedFile>, serde_json::Error> =
-                    serde_json::from_str(&text);
+                    serde_json::from_str(&content);
                 match map {
                     Ok(file_map) => file_map,
                     Err(err) => {
-                        eprintln!("{}",err);
+                        writeln!(io::stderr(), "cahce corrupted {}", err)
+                            .expect("printing to stderr failed");
                         HashMap::new()
                     }
                 }
             }
             Err(err) => {
-                eprintln!("{}",err);
-                HashMap::new()
+                writeln!(io::stderr(), "cannot open file {}", err)
+                    .expect("printing to stderr failed");
+                panic!();
             },
         }
         

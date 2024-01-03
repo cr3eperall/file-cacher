@@ -86,6 +86,9 @@ impl Config{
 
     pub fn ensure_create_new_file(path: &str) -> Result<()> {
         let path = get_absolute_path_with_variables(path);
+        let mut dir_path=std::path::PathBuf::from(&path);
+        dir_path.pop();
+        fs::create_dir_all(dir_path)?;
         if let Ok(mut file) = File::options().create_new(true).write(true).open(path) {
             file.write_all(CONFIG_DEFAULT_CONTENTS.as_bytes())?;
             file.flush()?;
